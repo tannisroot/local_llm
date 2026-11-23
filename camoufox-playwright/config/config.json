@@ -1,0 +1,10 @@
+{
+  "browser": {
+    "provider": "camoufox",
+    "camoufoxOptions": {
+      "geoip": true,
+      "humanize": true,
+      "os": "windows"
+    }
+  }
+}

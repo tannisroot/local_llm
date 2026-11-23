@@ -1,0 +1,63 @@
+{
+  "idleTimeoutMs": 1800000,
+  "servers": {
+    "typescript-native": {
+      "command": "/home/omp/.omp/agent/lsp-bin/node_modules/.bin/tsc",
+      "args": ["--lsp", "--stdio"],
+      "rootMarkers": [
+        ".",
+        "package.json",
+        "tsconfig.json",
+        "jsconfig.json",
+        ".git"
+      ]
+    },
+    "pyright": {
+      "command": "/home/omp/.omp/agent/lsp-bin/node_modules/.bin/pyright-langserver",
+      "args": ["--stdio"],
+      "disabled": false,
+      "rootMarkers": [
+        ".",
+        "pyrightconfig.json",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        ".git"
+      ],
+      "settings": {
+        "python": {
+          "analysis": {
+            "typeCheckingMode": "basic",
+            "autoSearchPaths": true,
+            "useLibraryCodeForTypes": true
+          }
+        }
+      }
+    },
+    "yamlls": {
+      "command": "/home/omp/.omp/agent/lsp-bin/node_modules/.bin/yaml-language-server",
+      "args": ["--stdio"],
+      "disabled": false,
+      "rootMarkers": [
+        ".",
+        ".git"
+      ],
+      "settings": {
+        "yaml": {
+          "validate": true,
+          "hover": true,
+          "completion": true,
+          "format": {
+            "enable": true
+          }
+        },
+        "redhat": {
+          "telemetry": {
+            "enabled": false
+          }
+        }
+      }
+    }
+  }
+}

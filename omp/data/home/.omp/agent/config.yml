@@ -1,0 +1,39 @@
+dev:
+  autoqaConsent: denied
+  autoqa: false
+modelRoles:
+  default: strata/qwen3.8-flash-next-unsloth-ud-q4_k_xl
+  web: web/searxng
+defaultThinkingLevel: xhigh
+symbolPreset: unicode
+composer:
+  shape: claude
+  tokenRate: true
+theme:
+  dark: titanium
+  light: light
+setupVersion: 3
+browser:
+  enabled: false
+retry:
+  fallbackChains:
+    web: []
+providers:
+  fetch: firecrawl
+  maxInFlightRequests:
+    strata: 1
+compaction:
+  enabled: true
+  experimentalContextManagement: true
+  thresholdPercent: 90
+  keepRecentTokens: 16384
+  idleEnabled: false
+  asyncEnabled: false
+tools:
+  approvalMode: yolo
+  restrictedFolders:
+    - /home/omp
+disassembler:
+  backend: ghidra
+statusLine:
+  compactThinkingLevel: false

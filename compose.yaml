@@ -1,0 +1,352 @@
+services:
+  omp:
+    attach: false
+    image: tannisroot/oh-my-pi:v18.22.2
+    container_name: omp
+    user: 1000:1000
+    security_opt:
+      - no-new-privileges:true
+    working_dir: /workspace
+    environment:
+      HOME: /home/omp
+      BUN_INSTALL_CACHE_DIR: /home/omp/.bun/install/cache
+      SEARXNG_ENDPOINT: http://searxng:8080
+      FIRECRAWL_BASE_URL: http://firecrawl:3002
+      FIRECRAWL_API_KEY: local
+      STRATA_API_KEY: ${STRATA_API_KEY}
+      GITHUB_MCP_TOKEN: ${GITHUB_MCP_TOKEN}
+      CONTEXT7_MCP_HTTP_KEY: ${CONTEXT7_MCP_HTTP_KEY}
+    networks:
+      omp: {}
+      strata: {}
+      searxng: {}
+      firecrawl: {}
+      mcp: {}
+    volumes:
+      - ${storage}/omp/workspace:/workspace
+      - ${storage}/omp/data/home:/home/omp
+      - ${storage}/omp/data/cache:/data
+    command: launch
+    stdin_open: true
+    tty: true
+    depends_on:
+      strata:
+        condition: service_healthy
+      camoufox-playwright:
+        condition: service_healthy
+      searxng:
+        condition: service_started
+      firecrawl:
+        condition: service_started
+      context7-mcp:
+        condition: service_healthy
+      github-mcp:
+        condition: service_started
+  strata:
+    image: ghcr.io/niko1221/strata:0.2.20-rocm-gfx110x
+    container_name: strata
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8080:8080
+    networks:
+      strata: {}
+    environment:
+      FAMILY: unsloth # inkling-2-mini
+      MODEL: UD-Q4_K_XL
+      MODEL_PATH: /models/UD-Q4_K_XL # GGUF files you already have, as seen inside the container (mount them below)
+      CONTEXT: 256K
+      PARALLEL: 1
+      VISION: cpu
+      TUNE: skip
+      API_KEY: ${STRATA_API_KEY}
+      KV: fp16
+      GPU: 0
+      STRATA_UNDECLARED_TOOL_CALLS: call # Fix for xdev tool calling in OMP
+      STRATA_ROUTE_TAIL_SKIP: 0 # Prevent skipping of experts
+      STRATA_ROUTE_PRIOR: 0 # Original model expert routing
+      STRATA_HC_Q8: 1 # Avoid BF16 conversion and rounding issues that this brings, see the bottom of the https://github.com/Niko1221/Strata/blob/main/docs/QUANTS.md page
+      #STRATA_KV_ROT: 1 # Enable KV cache rotation when using quantized KV
+      STRATA_KVA: 0 # Disable Key/Value Approximation, should be off by default anyway but just in case
+      STRATA_SET: "kv-offload=off vram-reserve-mib=0 ple-io=direct pcie-frac=0.30" #
+      STRATA_RAM_KEEP_GIB: 0 # Do not reserve spare memory
+      GPU_PINNED_MIN_XFER_SIZE: 1048576 # Workaround for ROCM VRAM eviction issue, see https://github.com/Niko1221/Strata/pull/3913
+      HSA_USERPTR_FOR_PAGED_MEM: 0 # See above
+    volumes:
+      - ${storage}/strata:/data
+      - ${storage}/models:/models:ro
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri/card0:/dev/dri/card0
+      - /dev/dri/renderD129:/dev/dri/renderD129
+    group_add:
+      - video
+      - 989              # the host's render group id: getent group render | cut -d: -f3 (needed if you add `user:`; root does not need it)
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    shm_size: 2gb
+    stop_grace_period: 2m
+    # security_opt: [seccomp:unconfined]     # only if the log says a ROCm call was blocked (rare)
+  camoufox-playwright:
+    build:
+      context: .
+      dockerfile: Dockerfile_camoufox
+      args:
+        UV_VERSION: "0.13.9"
+    image: local/camoufox-playwright:uv-0.13.9
+    container_name: omp-camoufox-playwright-mcp
+    user: 1000:1000
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 2g
+    entrypoint: >
+      /bin/bash -c "
+        # echo 'Installing Camoufox browser...' &&
+        # uvx --python 3.14 camoufox-playwright-mcp@0.1.6 install-browser &&
+        echo 'Starting MCP server on 0.0.0.0:8000...' &&
+        uvx --python 3.14 camoufox-playwright-mcp@0.1.6 --headless --host 0.0.0.0 --port 8000 --config /config/config.json
+      "
+    healthcheck:
+      test: ["CMD", "bash", "-c", ": > /dev/tcp/127.0.0.1/8000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15m
+    environment:
+      - CAMOUFOX_MCP_ALLOWED_HOSTS=camoufox-playwright
+      - CAMOUFOX_MCP_CAPS=config,network,storage,devtools,vision,testing
+      - CAMOUFOX_MCP_VIEWPORT_SIZE=1280x720
+      - CAMOUFOX_MCP_SANDBOX=true
+      - CAMOUFOX_MCP_OUTPUT_DIR=/workspace/playwright
+    networks:
+      mcp: {}
+    dns: 9.9.9.9
+    volumes:
+      - ${storage}/camoufox-playwright/config:/config
+      - ${storage}/camoufox-playwright/data:/home/camoufox
+      - ${storage}/omp/workspace:/workspace
+    restart: unless-stopped
+    pull_policy: weekly
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: omp-searxng
+    user: searxng:searxng
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - SEARXNG_CONTACT_URL=${SEARXNG_CONTACT_URL}
+    restart: unless-stopped
+    pull_policy: daily
+    ports:
+      - 127.0.0.1:4000:8080
+    depends_on:
+      - valkey
+    networks:
+      searxng: {}
+      valkey: {}
+    volumes:
+      - ${storage}/searxng:/etc/searxng:Z
+      - searxng-cache:/var/cache/searxng
+  valkey:
+    image: docker.io/valkey/valkey:9.1.4-trixie
+    container_name: omp-valkey
+    user: 65534:65534
+    security_opt:
+      - no-new-privileges:true
+    command: valkey-server --save 30 1 --loglevel warning
+    restart: unless-stopped
+    pull_policy: weekly
+    networks:
+      valkey: {}
+    volumes:
+      - valkey:/data
+  firecrawl:
+    image: ghcr.io/firecrawl/firecrawl:2.11.831
+    container_name: omp-firecrawl
+    user: 1000:1000
+    security_opt:
+      - no-new-privileges:true
+    command: node dist/src/harness.js --start-docker
+    environment:
+      - LOGGING_LEVEL=warn
+      - REDIS_URL=redis://valkey:6379
+      - REDIS_RATE_LIMIT_URL=redis://valkey:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000/scrape
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=postgres            # must stay "postgres" (pg_cron)
+      - POSTGRES_HOST=nuq-postgres
+      - POSTGRES_PORT=5432
+      - USE_DB_AUTHENTICATION=false
+      - NUQ_RABBITMQ_URL=amqp://rabbitmq:5672
+      - HOST=0.0.0.0
+      - PORT=3002
+      - EXTRACT_WORKER_PORT=3004
+      - WORKER_PORT=3005
+      - ENV=local
+      - MAX_CPU=0.99
+      - MAX_RAM=0.99
+      - NUQ_WORKER_COUNT=1
+      - CRAWL_CONCURRENT_REQUESTS=5
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    cpus: 8
+    mem_limit: 8G
+    depends_on:
+      valkey:
+        condition: service_started
+      playwright-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    dns: 9.9.9.9
+    networks:
+      firecrawl: {}
+      firecrawl-services: {}
+      valkey: {}
+    restart: unless-stopped
+    pull_policy: weekly
+  playwright-service:
+    image: ghcr.io/firecrawl/playwright-service:sha-8b950c45c8ca
+    container_name: omp-firecrawl-playwright-service
+    user: 1000:1000
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 2g
+    environment:
+      - PORT=3000
+      - MAX_CONCURRENT_PAGES=50
+    cap_drop:
+      - ALL
+    cpus: 8
+    mem_limit: 8G
+    tmpfs:
+      - /tmp/.cache:noexec,nosuid,size=1g
+    dns: 9.9.9.9
+    networks:
+      firecrawl-services: {}
+    restart: unless-stopped
+    pull_policy: weekly
+  nuq-postgres:
+    attach: false
+    image: ghcr.io/firecrawl/nuq-postgres:sha-a7a63b4bfabf
+    container_name: omp-firecrawl-nuq-postgres
+    user: 999:999
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 1g
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=postgres
+    dns: 9.9.9.9
+    networks:
+      firecrawl-services: {}
+    restart: unless-stopped
+    pull_policy: weekly
+  rabbitmq:
+    attach: false
+    image: docker.io/library/rabbitmq:3-management
+    container_name: omp-firecrawl-rabbitmq
+    user: 999:999
+    security_opt:
+      - no-new-privileges:true
+    command: rabbitmq-server
+    healthcheck:
+      test: rabbitmq-diagnostics -q check_running
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    dns: 9.9.9.9
+    networks:
+      firecrawl-services: {}
+    restart: unless-stopped
+    pull_policy: weekly
+  github-mcp:
+    attach: false
+    image: ghcr.io/github/github-mcp-server:2.2.0
+    container_name: omp-github-mcp
+    user: 65534:65534
+    security_opt:
+      - no-new-privileges:true
+    command: ["http"]
+    environment:
+      GITHUB_TOOLSETS: context,repos,issues,pull_requests,discussions
+      GITHUB_READ_ONLY: "true"
+    networks:
+      mcp: {}
+    restart: unless-stopped
+    pull_policy: weekly
+  context7-mcp:
+    attach: false
+    image: ghcr.io/supercorp-ai/supergateway:4.2.4
+    container_name: omp-context7-mcp
+    user: 1000:1000
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      mcp: {}
+    command:
+      - --stdio
+      - npx -y @upstash/context7-mcp@4.7.3 --transport stdio
+      - --outputTransport
+      - streamableHttp
+      - --stateful
+      - --sessionTimeout
+      - "1800000"
+      - --port
+      - "8000"
+      - --host
+      - 0.0.0.0
+      - --healthEndpoint
+      - /healthz
+      - --healthCheck
+      - server
+    environment:
+      CONTEXT7_API_KEY: ${CONTEXT7_API_KEY}
+      SUPERGATEWAY_API_KEY: ${CONTEXT7_MCP_HTTP_KEY}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 5m
+networks:
+  omp:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  strata:
+    ipam:
+      config:
+        - subnet: 172.30.1.0/24
+  mcp:
+    ipam:
+      config:
+        - subnet: 172.30.2.0/24
+  firecrawl:
+    ipam:
+      config:
+        - subnet: 172.30.3.0/24
+  firecrawl-services:
+    ipam:
+      config:
+        - subnet: 172.30.4.0/24
+  searxng:
+    ipam:
+      config:
+        - subnet: 172.30.5.0/24
+  valkey:
+    internal: true
+volumes:
+  searxng-cache:
+  valkey:

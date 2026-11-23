@@ -1,0 +1,33 @@
+# Configurable uv version
+ARG UV_VERSION=0.13.7
+
+# Use the official uv image based on Debian Trixie Slim
+FROM ghcr.io/astral-sh/uv:${UV_VERSION}-trixie-slim
+
+# Install ONLY the system libraries required by Camoufox
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgtk-3-0 \
+    libdbus-glib-1-2 \
+    libxt6 \
+    libasound2 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxss1 \
+    libxtst6 \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create the camoufox user with UID/GID 1000 and prepare the install dir
+RUN useradd --uid 1000 --user-group --create-home --shell /bin/bash camoufox
+
+# Point uv's cache and Camoufox's install directory at the non-root user's paths
+ENV HOME=/home/camoufox \
+    UV_CACHE_DIR=/home/camoufox/.cache/uv
+
+USER camoufox
+WORKDIR /home/camoufox

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {
+    "playwright": {
+      "type": "http",
+      "url": "http://camoufox-playwright:8000/mcp",
+      "timeout": 120000,
+      "enabled": true
+    },
+    "github": {
+      "type": "http",
+      "url": "http://github-mcp:8082",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_MCP_TOKEN}"
+      },
+      "timeout": 120000,
+      "enabled": true
+    },
+    "context7": {
+      "type": "http",
+      "url": "http://context7-mcp:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${CONTEXT7_MCP_HTTP_KEY}"
+      },
+      "timeout": 120000,
+      "enabled": true
+    }
+  }
+}
